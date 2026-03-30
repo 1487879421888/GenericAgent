@@ -119,7 +119,7 @@ function analyzeNode(node, pPathType='main') {
       node.nodeType === 1 && (node.dataset.mark = 'K:leaf');  
       return;  
     }  
-    const pathType = (node.dataset.mark && !node.dataset.mark.includes(':main')) ? 'second' : pPathType;  
+    const pathType = (node.dataset.mark === 'K:secondary') ? 'second' : pPathType;  
     const nodeInfoData = getNodeInfo(node);
     if (!nodeInfoData || !nodeInfoData.rect) return;
     const rectn = nodeInfoData.rect; 
@@ -166,13 +166,14 @@ function analyzeNode(node, pPathType='main') {
                           (childrenInfo.length === 1 || childrenInfo[0].area > childrenInfo[1].area * 2);  
     if (hasMainElement) {  
       childrenInfo[0].node.dataset.mark = 'K:main';
-      for (let i = pathType==='main'?1:0; i < childrenInfo.length; i++) {  
+      for (let i = 1; i < childrenInfo.length; i++) {  
         const child = childrenInfo[i];  
         let isSecondary = containsButton(child.node);
-        if (pathType === "main" && child.node.className.toLowerCase().includes('nav')) isSecondary = true;
-        if (pathType === "main" && child.node.className.toLowerCase().includes('breadcrumbs')) isSecondary = true;
-        if (pathType === "main" && child.node.className.toLowerCase().includes('header') && child.node.className.toLowerCase().includes('table')) isSecondary = true;
-        if (pathType === "main" && child.node.innerHTML.trim().replace(/\s+/g, '').length < 500) isSecondary = true;
+        if (child.node.className.toLowerCase().includes('nav')) isSecondary = true;
+        if (child.node.className.toLowerCase().includes('breadcrumbs')) isSecondary = true;
+        if (child.node.className.toLowerCase().includes('header') && child.node.className.toLowerCase().includes('table')) isSecondary = true;
+        if (child.node.innerHTML.trim().replace(/\s+/g, '').length < 500) isSecondary = true;
+        if (child.node.textContent.trim().length > 200) isSecondary = true;  // P3: 有实质文本内容则保留
         if (child.style.visibility === 'hidden') isSecondary = false;
         if (isSecondary) child.node.dataset.mark = 'K:secondary';  
         else child.node.dataset.mark = 'R:nonEssential';  
@@ -848,13 +849,13 @@ def execute_js_rich(script, driver, no_monitor=False):
         try: last_html = get_html(driver, cutlist=False, extra_js=temp_monitor_js, maxchars=9999999)
         except: pass
     result = None;  error_msg = None;  reloaded = False; newTabs = []
-    before_sids = set(driver.get_session_dict().keys())
+    before_sids = set(driver.get_session_dict().keys()); response = {}
     try:
         print(f"Executing: {script[:250]} ...")
         response = driver.execute_js(script)
         result = response.get('data') or response.get('result')
         if response.get('closed', 0) == 1: reloaded = True
-        time.sleep(2) 
+        time.sleep(1) 
     except Exception as e:
         error = e.args[0] if e.args else str(e)
         if isinstance(error, dict): error.pop('stack', None)
