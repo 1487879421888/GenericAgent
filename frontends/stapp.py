@@ -27,6 +27,7 @@ agent = init()
 
 st.title("🖥️ Cowork")
 
+
 if 'autonomous_enabled' not in st.session_state: st.session_state.autonomous_enabled = False
 
 @st.fragment
@@ -97,7 +98,7 @@ def render_segments(segments, suffix=''):
         if seg['type'] == 'fold':
             with st.expander(seg['title'], expanded=False): st.markdown(seg['content'])
         else:
-            st.markdown(seg['content'] + suffix, unsafe_allow_html=not not suffix)
+            st.markdown(seg['content'] + suffix)
 
 def agent_backend_stream(prompt):
     display_queue = agent.put_task(prompt, source="user")
@@ -123,10 +124,28 @@ for msg in st.session_state.messages:
             if msg["role"] == "assistant": render_segments(fold_turns(msg["content"]))
             else: st.markdown(msg["content"])
 
+# Scroll-height ghost fix: during streaming, expander open/close mid-animation can leave
+# phantom height → scrollbar long but can't scroll to bottom. Periodically detect & reflow.
+import streamlit.components.v1 as components
+_js_scroll_fix = ("!function(){var p=window.parent;if(p.__sfx)return;p.__sfx=1;"
+    "var d=p.document;setInterval(function(){"
+    "var m=d.querySelector('section.main');if(!m)return;"
+    "var b=m.querySelector('.block-container');if(!b)return;"
+    "if(m.scrollHeight>b.scrollHeight+150){"
+    "m.style.overflow='hidden';void m.offsetHeight;m.style.overflow=''}"
+    "},3000)}()")
 # IME composition fix (macOS only) - prevents Enter from submitting during CJK input
-if os.name != 'nt':
-    import streamlit.components.v1 as components
-    components.html('<script>!function(){if(window.parent.__imeFix)return;window.parent.__imeFix=1;var d=window.parent.document,c=0;d.addEventListener("compositionstart",()=>c=1,!0);d.addEventListener("compositionend",()=>c=0,!0);function f(){d.querySelectorAll("textarea[data-testid=stChatInputTextArea]").forEach(t=>{t.__imeFix||(t.__imeFix=1,t.addEventListener("keydown",e=>{e.key==="Enter"&&!e.shiftKey&&(e.isComposing||c||e.keyCode===229)&&(e.stopImmediatePropagation(),e.preventDefault())},!0))})}f();new MutationObserver(f).observe(d.body,{childList:1,subtree:1})}()</script>', height=0)
+_js_ime_fix = ("" if os.name == 'nt' else
+    "!function(){if(window.parent.__imeFix)return;window.parent.__imeFix=1;"
+    "var d=window.parent.document,c=0;"
+    "d.addEventListener('compositionstart',()=>c=1,!0);"
+    "d.addEventListener('compositionend',()=>c=0,!0);"
+    "function f(){d.querySelectorAll('textarea[data-testid=stChatInputTextArea]')"
+    ".forEach(t=>{t.__imeFix||(t.__imeFix=1,t.addEventListener('keydown',e=>{"
+    "e.key==='Enter'&&!e.shiftKey&&(e.isComposing||c||e.keyCode===229)&&"
+    "(e.stopImmediatePropagation(),e.preventDefault())},!0))})}"
+    "f();new MutationObserver(f).observe(d.body,{childList:1,subtree:1})}()")
+components.html(f'<script>{_js_scroll_fix};{_js_ime_fix}</script>', height=0)
 
 if prompt := st.chat_input("请输入指令"):
     st.session_state.messages.append({"role": "user", "content": prompt})
@@ -134,7 +153,7 @@ if prompt := st.chat_input("请输入指令"):
 
     with st.chat_message("assistant"):
         slot = st.empty(); response = ''
-        CURSOR = '<span style="animation: blink 1s step-start infinite; color: #0066cc;">▌</span><style>@keyframes blink { 50% { opacity: 0; } }</style>'
+        CURSOR = ' ▌'
         for response in agent_backend_stream(prompt):
             # 每轮整块重画（含 heartbeat 空转）：segments 不变时 Streamlit diff 零变更 → 不闪烁；
             # 而 slot.container() 调用本身保证 Streamlit 能抛 StopException（abort 生效）

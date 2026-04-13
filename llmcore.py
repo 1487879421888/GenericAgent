@@ -267,6 +267,19 @@ def _parse_openai_sse(resp_lines, api_mode="chat_completions"):
             blocks.append({"type": "tool_use", "id": tc["id"], "name": tc["name"], "input": inp})
         return blocks
 
+def _stamp_oai_cache_markers(messages, model):
+    """Add cache_control to last 2 user messages for Anthropic models via OAI-compatible relay."""
+    ml = model.lower()
+    if not any(k in ml for k in ('claude', 'anthropic')): return
+    user_idxs = [i for i, m in enumerate(messages) if m.get('role') == 'user']
+    for idx in user_idxs[-2:]:
+        c = messages[idx].get('content')
+        if isinstance(c, str):
+            messages[idx] = {**messages[idx], 'content': [{'type': 'text', 'text': c, 'cache_control': {'type': 'ephemeral'}}]}
+        elif isinstance(c, list) and c:
+            c = list(c); c[-1] = dict(c[-1], cache_control={'type': 'ephemeral'})
+            messages[idx] = {**messages[idx], 'content': c}
+
 def _openai_stream(api_base, api_key, messages, model, api_mode='chat_completions', *,
                    temperature=0.5, max_tokens=None, tools=None, reasoning_effort=None,
                    max_retries=0, connect_timeout=10, read_timeout=300, proxies=None):
@@ -281,6 +294,7 @@ def _openai_stream(api_base, api_key, messages, model, api_mode='chat_completion
         if reasoning_effort: payload["reasoning"] = {"effort": reasoning_effort}
     else:
         url = auto_make_url(api_base, "chat/completions")
+        _stamp_oai_cache_markers(messages, model)
         payload = {"model": model, "messages": messages, "temperature": temperature, "stream": True, "stream_options": {"include_usage": True}}
         if max_tokens: payload["max_tokens"] = max_tokens
         if reasoning_effort: payload["reasoning_effort"] = reasoning_effort
@@ -483,8 +497,9 @@ class ClaudeSession(BaseSession):
             return [{"type": "text", "text": err}]
     def make_messages(self, raw_list):
         msgs = [{"role": m['role'], "content": list(m['content'])} for m in raw_list]
-        c = msgs[-1]["content"]
-        c[-1] = dict(c[-1], cache_control={"type": "ephemeral"})
+        user_idxs = [i for i, m in enumerate(msgs) if m['role'] == 'user']
+        for idx in user_idxs[-2:]:
+            msgs[idx]["content"][-1] = dict(msgs[idx]["content"][-1], cache_control={"type": "ephemeral"})
         return msgs
 
 class LLMSession(BaseSession):
@@ -544,8 +559,10 @@ class NativeClaudeSession(BaseSession):
         if self.system:
             if self.fake_cc_system_prompt: messages[0]["content"].insert(0, {"type": "text", "text": self.system})
             else: payload["system"] = [{"type": "text", "text": self.system}]
-        messages[-1] = {**messages[-1], "content": list(messages[-1]["content"])}
-        messages[-1]["content"][-1] = dict(messages[-1]["content"][-1], cache_control={"type": "ephemeral"})
+        user_idxs = [i for i, m in enumerate(messages) if m['role'] == 'user']
+        for idx in user_idxs[-2:]:
+            messages[idx] = {**messages[idx], "content": list(messages[idx]["content"])}
+            messages[idx]["content"][-1] = dict(messages[idx]["content"][-1], cache_control={"type": "ephemeral"})
         try:
             resp = requests.post(auto_make_url(self.api_base, "messages")+'?beta=true', headers=headers, json=payload, stream=True, timeout=(self.connect_timeout, self.read_timeout))
             if resp.status_code != 200: raise Exception(f"HTTP {resp.status_code} {resp.content.decode('utf-8', errors='replace')[:500]}")
@@ -819,6 +836,7 @@ class MixinSession:
         for attempt in range(self._retries + 1):
             idx = (base + attempt) % n
             gen = self._orig_raw_asks[idx](*args, **kwargs)
+            print(f'[MixinSession] Using session ({self._sessions[idx].name})')
             last_chunk, return_val, yielded = None, [], False
             try:
                 while True:
