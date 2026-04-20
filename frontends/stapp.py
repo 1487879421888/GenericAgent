@@ -15,6 +15,7 @@ import streamlit as st
 import time, json, re, threading, queue
 from agentmain import GeneraticAgent
 import chatapp_common  # activate /continue command (monkey patches GeneraticAgent)
+from continue_cmd import handle_frontend_command, reset_conversation
 
 st.set_page_config(page_title="Cowork", layout="wide")
 
@@ -174,6 +175,31 @@ _js_ime_fix = ("" if os.name == 'nt' else
 _embed_html(f'<script>{_js_scroll_fix};{_js_ime_fix}</script>', height=0)
 
 if prompt := st.chat_input("any task?"):
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    cmd = (prompt or "").strip()
+    if cmd == "/new":
+        st.session_state.messages = [{"role": "assistant", "content": reset_conversation(agent), "time": ts}]
+        st.session_state.streaming = False
+        st.session_state.stopping = False
+        st.session_state.display_queue = None
+        st.session_state.partial_response = ""
+        st.session_state.reply_ts = ""
+        st.session_state.current_prompt = ""
+        st.session_state.last_reply_time = int(time.time())
+        st.rerun()
+    if cmd.startswith("/continue"):
+        st.session_state.messages = list(st.session_state.messages) + [
+            {"role": "user", "content": cmd, "time": ts},
+            {"role": "assistant", "content": handle_frontend_command(agent, cmd), "time": ts},
+        ]
+        st.session_state.streaming = False
+        st.session_state.stopping = False
+        st.session_state.display_queue = None
+        st.session_state.partial_response = ""
+        st.session_state.reply_ts = ""
+        st.session_state.current_prompt = ""
+        st.session_state.last_reply_time = int(time.time())
+        st.rerun()
     st.session_state.messages.append({"role": "user", "content": prompt})
     if hasattr(agent, '_pet_req') and not prompt.startswith('/'): agent._pet_req('state=walk')
     with st.chat_message("user"): st.markdown(prompt)

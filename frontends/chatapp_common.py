@@ -1,6 +1,6 @@
 import ast, asyncio, glob, json, os, queue as Q, re, socket, sys, time
 
-HELP_TEXT = "📖 命令列表:\n/help - 显示帮助\n/status - 查看状态\n/stop - 停止当前任务\n/new - 清空当前上下文\n/restore - 恢复上次对话历史\n/llm [n] - 查看或切换模型"
+HELP_TEXT = "📖 命令列表:\n/help - 显示帮助\n/status - 查看状态\n/stop - 停止当前任务\n/new - 开启新对话并清空当前上下文\n/restore - 恢复上次对话历史\n/continue - 列出可恢复会话\n/continue [n] - 恢复第 n 个会话\n/llm [n] - 查看或切换模型"
 FILE_HINT = "If you need to show files to user, use [FILE:filepath] in your response."
 TAG_PATS = [r"<" + t + r">.*?</" + t + r">" for t in ("thinking", "summary", "tool_use", "file_content")]
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -237,6 +237,8 @@ class AgentChatMixin:
     async def handle_command(self, chat_id, cmd, **ctx):
         parts = (cmd or "").split()
         op = (parts[0] if parts else "").lower()
+        if op == "/help":
+            return await self.send_text(chat_id, HELP_TEXT, **ctx)
         if op == "/stop":
             state = self.user_tasks.get(chat_id)
             if state:
@@ -268,10 +270,10 @@ class AgentChatMixin:
                 return await self.send_text(chat_id, f"✅ 已恢复 {count} 轮对话\n来源: {fname}\n(仅恢复上下文，请输入新问题继续)", **ctx)
             except Exception as e:
                 return await self.send_text(chat_id, f"❌ 恢复失败: {e}", **ctx)
+        if op == "/continue":
+            return await self.send_text(chat_id, _handle_continue_frontend(self.agent, cmd), **ctx)
         if op == "/new":
-            self.agent.abort()
-            self.agent.history = []
-            return await self.send_text(chat_id, "🆕 已清空当前共享上下文", **ctx)
+            return await self.send_text(chat_id, _reset_conversation(self.agent), **ctx)
         return await self.send_text(chat_id, HELP_TEXT, **ctx)
 
     async def run_agent(self, chat_id, text, **ctx):
@@ -304,5 +306,5 @@ class AgentChatMixin:
 
 
 from agentmain import GeneraticAgent as _GA
-from continue_cmd import install as _install_continue
+from continue_cmd import handle_frontend_command as _handle_continue_frontend, install as _install_continue, reset_conversation as _reset_conversation
 _install_continue(_GA)
