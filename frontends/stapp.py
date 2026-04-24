@@ -1,6 +1,8 @@
 import os, sys, subprocess
-from urllib.request import urlopen
-from urllib.parse import quote
+from urllib.request import urlopen, Request
+from urllib.parse import quote, urlparse
+from urllib.error import HTTPError
+from pathlib import Path
 if sys.stdout is None: sys.stdout = open(os.devnull, "w")
 if sys.stderr is None: sys.stderr = open(os.devnull, "w")
 try: sys.stdout.reconfigure(errors='replace')
@@ -30,6 +32,241 @@ def init():
 
 agent = init()
 
+# ---- persistent UI state ----
+DATA_DIR = Path(script_dir).parent / 'temp'
+UI_STATE_FILE = DATA_DIR / 'stapp_ui_state.json'
+MAX_PERSIST_MESSAGES = 300
+MAX_PROMPT_HISTORY = 300
+MAX_MODEL_HISTORY = 120
+
+
+def _safe_read_json(path: Path, default):
+    try:
+        if not path.exists():
+            return default
+        return json.loads(path.read_text(encoding='utf-8'))
+    except Exception:
+        return default
+
+
+def _safe_write_json(path: Path, data):
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+        return True
+    except Exception:
+        return False
+
+
+def _load_ui_state() -> dict:
+    data = _safe_read_json(UI_STATE_FILE, {})
+    if not isinstance(data, dict):
+        data = {}
+    return {
+        'messages': data.get('messages') if isinstance(data.get('messages'), list) else [],
+        'prompt_history': data.get('prompt_history') if isinstance(data.get('prompt_history'), list) else [],
+        'model_fetch_history': data.get('model_fetch_history') if isinstance(data.get('model_fetch_history'), list) else [],
+        'last_models': data.get('last_models') if isinstance(data.get('last_models'), list) else [],
+        'model_cfg': data.get('model_cfg') if isinstance(data.get('model_cfg'), dict) else {},
+    }
+
+
+def _persist_ui_state():
+    payload = {
+        'messages': list(st.session_state.get('messages', []))[-MAX_PERSIST_MESSAGES:],
+        'prompt_history': list(st.session_state.get('prompt_history', []))[-MAX_PROMPT_HISTORY:],
+        'model_fetch_history': list(st.session_state.get('model_fetch_history', []))[-MAX_MODEL_HISTORY:],
+        'last_models': list(st.session_state.get('last_models', [])),
+        'model_cfg': dict(st.session_state.get('model_cfg', {})),
+        'updated_at': int(time.time()),
+    }
+    _safe_write_json(UI_STATE_FILE, payload)
+
+
+def _mykey_model_defaults() -> dict:
+    """Best-effort defaults from mykey.py without exposing secret values."""
+    try:
+        import mykey as _mk  # type: ignore
+    except Exception:
+        return {}
+
+    def _pick(*names):
+        for n in names:
+            v = getattr(_mk, n, None)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+        return ''
+
+    apibase = _pick('apiurl', 'api_url', 'APIURL', 'API_URL', 'apibase', 'api_base', 'OPENAI_API_BASE')
+    apikey = _pick('apikey', 'api_key', 'APIKEY', 'API_KEY', 'OPENAI_API_KEY')
+    fmt = _pick('api_format', 'format', 'FORMAT', 'llm_format')
+
+    out = {}
+    if apibase:
+        out['apibase'] = apibase
+    if apikey:
+        out['apikey'] = apikey
+    if fmt in SIMPLE_FORMAT_RULES:
+        out['format'] = fmt
+    return out
+
+
+def _apply_model_cfg_defaults_from_mykey():
+    cfg = dict(st.session_state.get('model_cfg', {}))
+    defaults = _mykey_model_defaults()
+    changed = False
+    for k, v in defaults.items():
+        if not str(cfg.get(k, '') or '').strip():
+            cfg[k] = v
+            changed = True
+    if changed:
+        st.session_state.model_cfg = cfg
+        _persist_ui_state()
+
+
+# ---- model list fetching (from ga_web_ui2.py simplified) ----
+SIMPLE_FORMAT_RULES = {
+    'oai_chat': {'label': 'OpenAI Chat Completions', 'kind': 'oai'},
+    'oai_responses': {'label': 'OpenAI Responses', 'kind': 'oai'},
+    'claude_text': {'label': 'Claude (文本协议)', 'kind': 'claude'},
+    'native_oai': {'label': 'OpenAI 原生', 'kind': 'oai'},
+    'native_claude': {'label': 'Claude 原生', 'kind': 'claude'},
+    'mixin': {'label': 'Mixin（故障转移）', 'kind': 'oai'},
+}
+
+
+def _strip_known_api_suffix(path: str) -> str:
+    raw = (path or '').strip().rstrip('/')
+    for suffix in (
+        '/v1/chat/completions', '/chat/completions',
+        '/v1/responses', '/responses',
+        '/v1/messages', '/messages',
+        '/v1/models', '/models',
+    ):
+        if raw.endswith(suffix):
+            return raw[:-len(suffix)] or '/'
+    return raw
+
+
+def _join_url(base: str, suffix: str) -> str:
+    base = (base or '').rstrip('/')
+    suffix = '/' + suffix.lstrip('/')
+    return f'{base}{suffix}'
+
+
+def _http_json(url: str, headers: dict | None = None, timeout: int = 12) -> dict:
+    merged = {'User-Agent': 'GenericAgent/1.0', 'Accept': 'application/json'}
+    if headers:
+        merged.update(headers)
+    req = Request(url, headers=merged, method='GET')
+    with urlopen(req, timeout=timeout) as resp:
+        raw = resp.read().decode('utf-8', errors='replace')
+    return json.loads(raw) if raw.strip() else {}
+
+
+def _extract_model_ids(payload) -> list:
+    items = []
+    if isinstance(payload, dict):
+        for k in ('data', 'models', 'items'):
+            if isinstance(payload.get(k), list):
+                items = payload[k]
+                break
+    elif isinstance(payload, list):
+        items = payload
+    out, seen = [], set()
+    for item in items:
+        if isinstance(item, str):
+            mid = item.strip()
+        elif isinstance(item, dict):
+            mid = str(item.get('id') or item.get('name') or item.get('model') or '').strip()
+        else:
+            mid = ''
+        if mid and mid not in seen:
+            seen.add(mid)
+            out.append(mid)
+    return out
+
+
+def _oai_models_base(apibase: str) -> str:
+    raw = (apibase or '').strip()
+    if not raw:
+        return ''
+    if '://' not in raw:
+        raw = 'https://' + raw
+    parsed = urlparse(raw)
+    root = f'{parsed.scheme}://{parsed.netloc}'.rstrip('/')
+    path = _strip_known_api_suffix(parsed.path or '').rstrip('/')
+    if not path:
+        path = '/v1'
+    if not path.startswith('/'):
+        path = '/' + path
+    return root + path
+
+
+def _anthropic_models_candidates(apibase: str) -> list:
+    raw = (apibase or '').strip()
+    if not raw:
+        return []
+    if '://' not in raw:
+        raw = 'https://' + raw
+    parsed = urlparse(raw)
+    root = f'{parsed.scheme}://{parsed.netloc}'.rstrip('/')
+    path = _strip_known_api_suffix(parsed.path or '').rstrip('/')
+    out = []
+    for candidate in (
+        _join_url(root + path, '/v1/models'),
+        _join_url(root + path, '/models'),
+        _join_url(root, '/v1/models'),
+        _join_url(root, '/models'),
+    ):
+        if candidate not in out:
+            out.append(candidate)
+    return out
+
+
+def _fetch_remote_models(format_key: str, apibase: str, apikey: str) -> list:
+    key = (apikey or '').strip()
+    base = (apibase or '').strip()
+    if not base:
+        raise ValueError('请先填写 URL')
+    kind = SIMPLE_FORMAT_RULES.get(format_key, SIMPLE_FORMAT_RULES['oai_chat']).get('kind', 'oai')
+
+    if kind == 'claude':
+        headers = {'anthropic-version': '2023-06-01'}
+        if key.startswith('sk-ant-'):
+            headers['x-api-key'] = key
+        elif key:
+            headers['Authorization'] = f'Bearer {key}'
+        last_err = None
+        for url in _anthropic_models_candidates(base):
+            try:
+                models = _extract_model_ids(_http_json(url, headers=headers))
+                if models:
+                    return models
+            except Exception as e:
+                last_err = e
+        if last_err:
+            raise last_err
+        raise ValueError('未拿到模型列表')
+
+    headers = {'Authorization': f'Bearer {key}'} if key else {}
+    models = _extract_model_ids(_http_json(_join_url(_oai_models_base(base), '/models'), headers=headers))
+    if models:
+        return models
+    raise ValueError('模型接口返回为空')
+
+
+if '_persist_loaded' not in st.session_state:
+    _s = _load_ui_state()
+    st.session_state.messages = _s['messages']
+    st.session_state.prompt_history = _s['prompt_history']
+    st.session_state.model_fetch_history = _s['model_fetch_history']
+    st.session_state.last_models = _s['last_models']
+    st.session_state.model_cfg = _s['model_cfg']
+    st.session_state._persist_loaded = True
+
+_apply_model_cfg_defaults_from_mykey()
+
 st.title("🖥️ Cowork")
 
 if 'autonomous_enabled' not in st.session_state: st.session_state.autonomous_enabled = False
@@ -41,6 +278,60 @@ def render_sidebar():
     last_reply_time = st.session_state.get('last_reply_time', 0)
     if last_reply_time > 0:
         st.caption(f"空闲时间：{int(time.time()) - last_reply_time}秒", help="当超过30分钟未收到回复时，系统会自动任务")
+
+    st.subheader("模型列表")
+    cfg = dict(st.session_state.get('model_cfg', {}))
+    fmt_keys = list(SIMPLE_FORMAT_RULES.keys())
+    default_fmt = cfg.get('format', 'oai_chat')
+    if default_fmt not in fmt_keys:
+        default_fmt = 'oai_chat'
+    fmt = st.selectbox('协议格式', fmt_keys, index=fmt_keys.index(default_fmt), format_func=lambda k: SIMPLE_FORMAT_RULES[k]['label'])
+    apibase = st.text_input('API Base URL', value=cfg.get('apibase', ''), placeholder='https://api.openai.com/v1')
+    apikey = st.text_input('API Key', value=cfg.get('apikey', ''), type='password', placeholder='sk-...')
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button('获取模型列表', use_container_width=True):
+            try:
+                models = _fetch_remote_models(fmt, apibase, apikey)
+                st.session_state.last_models = models
+                st.session_state.model_fetch_history.append({
+                    'ts': int(time.time()),
+                    'format': fmt,
+                    'apibase': apibase,
+                    'count': len(models),
+                    'models': models[:60],
+                })
+                st.session_state.model_fetch_history = st.session_state.model_fetch_history[-MAX_MODEL_HISTORY:]
+                st.session_state.model_cfg = {'format': fmt, 'apibase': apibase, 'apikey': apikey}
+                _persist_ui_state()
+                st.toast(f'已拉取 {len(models)} 个模型')
+            except Exception as e:
+                st.error(f'拉取失败: {e}')
+    with c2:
+        if st.button('清空模型记录', use_container_width=True):
+            st.session_state.last_models = []
+            st.session_state.model_fetch_history = []
+            _persist_ui_state()
+            st.toast('已清空模型记录')
+
+    models = st.session_state.get('last_models', [])
+    if models:
+        st.caption(f"最近模型数：{len(models)}")
+        st.code('\n'.join(models[:120]), language='text')
+
+    with st.expander('模型拉取历史（持久化）', expanded=False):
+        hist = list(st.session_state.get('model_fetch_history', []))
+        if not hist:
+            st.caption('暂无记录')
+        else:
+            for i, item in enumerate(reversed(hist[-20:]), 1):
+                ts = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(int(item.get('ts', 0) or 0)))
+                st.markdown(f"**{i}. {ts}** | {item.get('format','')} | {item.get('count',0)} models")
+                ms = item.get('models') or []
+                if ms:
+                    st.caption(', '.join(ms[:6]) + (' ...' if len(ms) > 6 else ''))
+
+    st.divider()
     if st.button("切换备用链路"):
         agent.next_llm(); st.rerun(scope="fragment")
     if st.button("强行停止任务"):
@@ -73,7 +364,7 @@ def render_sidebar():
             if ctx.get('exit_reason'): _pet_req('state=idle')
         agent._turn_end_hooks['pet'] = _pet_hook
         st.toast("桌面宠物已启动")
-    
+
     st.divider()
     if st.button("开始空闲自主行动"):
         st.session_state.last_reply_time = int(time.time()) - 1800
@@ -139,6 +430,61 @@ def agent_backend_stream(prompt):
     finally: agent.abort()
 
 if "messages" not in st.session_state: st.session_state.messages = []
+if "prompt_history" not in st.session_state: st.session_state.prompt_history = []
+
+
+def _reset_and_rerun():
+    st.session_state.streaming = False
+    st.session_state.stopping = False
+    st.session_state.display_queue = None
+    st.session_state.partial_response = ""
+    st.session_state.reply_ts = ""
+    st.session_state.current_prompt = ""
+    st.session_state.last_reply_time = int(time.time())
+    st.rerun()
+
+
+def _apply_continue_command(cmd: str, ts: str | None = None, target: str | None = None):
+    ts = ts or time.strftime("%Y-%m-%d %H:%M:%S")
+    m = re.match(r'/continue\s+(\d+)\s*$', (cmd or '').strip())
+    if target is None and m:
+        sessions = list_sessions(exclude_pid=os.getpid())
+        idx = int(m.group(1)) - 1
+        target = sessions[idx][0] if 0 <= idx < len(sessions) else None
+    result = handle_frontend_command(agent, cmd)
+    history = extract_ui_messages(target) if target and str(result).startswith('✅') else None
+    tail = [{"role": "assistant", "content": result, "time": ts}]
+    if history:
+        st.session_state.messages = history + tail
+    else:
+        st.session_state.messages = list(st.session_state.messages) + [{"role": "user", "content": cmd, "time": ts}] + tail
+    st.session_state.prompt_history.append({'ts': int(time.time()), 'text': cmd})
+    st.session_state.prompt_history = st.session_state.prompt_history[-MAX_PROMPT_HISTORY:]
+    _persist_ui_state()
+    _reset_and_rerun()
+
+
+with st.expander("会话历史（持久化）", expanded=False):
+    ph = list(st.session_state.get("prompt_history", []))
+    if not ph:
+        st.caption("暂无输入历史")
+    else:
+        recent = list(reversed(ph[-30:]))
+        for i, item in enumerate(recent, 1):
+            ts = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(int(item.get('ts', 0) or 0)))
+            txt = (item.get('text') or '').strip().replace('\n', ' ')
+            if len(txt) > 90: txt = txt[:90] + '...'
+            c1, c2 = st.columns([0.82, 0.18])
+            with c1:
+                st.markdown(f"{i}. `{ts}` {txt}")
+            with c2:
+                if st.button("恢复", key=f"hist_resume_{i}", use_container_width=True):
+                    _apply_continue_command(f"/continue {i}")
+    if st.button('清空会话历史记录', use_container_width=True):
+        st.session_state.prompt_history = []
+        _persist_ui_state()
+        st.toast('已清空会话历史记录')
+
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         # 用 slot=st.empty() + with slot.container(): ... 的外壳，DOM 路径和流式渲染完全一致，跨 rerun 对齐
@@ -177,34 +523,16 @@ _embed_html(f'<script>{_js_scroll_fix};{_js_ime_fix}</script>', height=0)
 if prompt := st.chat_input("any task?"):
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
     cmd = (prompt or "").strip()
-    def _reset_and_rerun():
-        st.session_state.streaming = False
-        st.session_state.stopping = False
-        st.session_state.display_queue = None
-        st.session_state.partial_response = ""
-        st.session_state.reply_ts = ""
-        st.session_state.current_prompt = ""
-        st.session_state.last_reply_time = int(time.time())
-        st.rerun()
     if cmd == "/new":
         st.session_state.messages = [{"role": "assistant", "content": reset_conversation(agent), "time": ts}]
+        _persist_ui_state()
         _reset_and_rerun()
     if cmd.startswith("/continue"):
-        m = re.match(r'/continue\s+(\d+)\s*$', cmd.strip())
-        sessions = list_sessions(exclude_pid=os.getpid()) if m else []
-        idx = int(m.group(1)) - 1 if m else -1
-        # Resolve target path BEFORE handle (which snapshots current log, shifting indices).
-        target = sessions[idx][0] if 0 <= idx < len(sessions) else None
-        result = handle_frontend_command(agent, cmd)
-        history = extract_ui_messages(target) if target and result.startswith('✅') else None
-        tail = [{"role": "assistant", "content": result, "time": ts}]
-        if history:
-            st.session_state.messages = history + tail
-        else:
-            st.session_state.messages = list(st.session_state.messages) + \
-                [{"role": "user", "content": cmd, "time": ts}] + tail
-        _reset_and_rerun()
+        _apply_continue_command(cmd, ts=ts)
     st.session_state.messages.append({"role": "user", "content": prompt})
+    st.session_state.prompt_history.append({'ts': int(time.time()), 'text': prompt})
+    st.session_state.prompt_history = st.session_state.prompt_history[-MAX_PROMPT_HISTORY:]
+    _persist_ui_state()
     if hasattr(agent, '_pet_req') and not prompt.startswith('/'): agent._pet_req('state=walk')
     with st.chat_message("user"): st.markdown(prompt)
 
@@ -224,6 +552,7 @@ if prompt := st.chat_input("any task?"):
             if i < len(segs) - 1: live = st.empty()
     st.session_state.messages.append({"role": "assistant", "content": response})
     st.session_state.last_reply_time = int(time.time())
+    _persist_ui_state()
 
 if st.session_state.autonomous_enabled:
     st.markdown(f"""<div id="last-reply-time" style="display:none">{st.session_state.get('last_reply_time', int(time.time()))}</div>""", unsafe_allow_html=True)
