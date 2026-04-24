@@ -1,0 +1,1432 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GA 控制台</title>
+<style>
+  :root {
+    /* ---- 基础面板 ---- */
+    --bg:          #0b0d12;
+    --panel:       #11141b;
+    --panel-2:     #161a22;
+    --panel-hover: #1c2230;
+    --border:      #252a36;
+    --border-hi:   #323849;
+    --fg:          #e7eaf2;
+    --fg-2:        #a2a8ba;
+    --fg-3:        #6a7186;
+    --fg-4:        #3c4257;
+
+    /* ---- 语义色 ---- */
+    --accent:      #7c9cff;   /* 主色：柔和蓝紫 */
+    --accent-fg:   #ffffff;
+    --accent-dim:  rgba(124, 156, 255, .12);
+    --success:     #4ade80;   /* 运行中 */
+    --success-dim: rgba(74, 222, 128, .12);
+    --warn:        #fbbf24;   /* REPLY pending / 快速模式 */
+    --warn-dim:    rgba(251, 191, 36, .12);
+    --danger:      #f87171;   /* stderr / 错误 / 停止 */
+    --danger-dim:  rgba(248, 113, 113, .10);
+    --info:        #38bdf8;   /* 项目上下文 */
+    --info-dim:    rgba(56, 189, 248, .12);
+    --purple:      #c084fc;   /* 历史 */
+    --purple-dim:  rgba(192, 132, 252, .12);
+
+    --font-sans: "PingFang SC", -apple-system, BlinkMacSystemFont, "Segoe UI",
+                 "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, "Cascadia Mono",
+                 Consolas, "Courier New", monospace;
+    --radius: 6px;
+    --radius-sm: 4px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: var(--font-sans);
+    font-size: 14px; line-height: 1.5;
+    background: var(--bg); color: var(--fg);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  ::selection { background: rgba(124,156,255,.25); }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #2a2f3d; border: 2px solid transparent; background-clip: padding-box; border-radius: 10px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3a4053; background-clip: padding-box; }
+
+  button, input, textarea { font-family: inherit; }
+  button { cursor: pointer; }
+
+  .app { display: grid; grid-template-columns: 260px 1fr; height: 100vh; }
+
+  /* =============== SIDEBAR =============== */
+  .sidebar {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    min-height: 0;
+  }
+  .side-head {
+    padding: 16px 16px 12px;
+    display: flex; align-items: center; gap: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .logo {
+    width: 30px; height: 30px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #7c9cff 0%, #c084fc 100%);
+    color: #fff;
+    display: grid; place-items: center;
+    font-weight: 700; font-size: 13px; letter-spacing: -.5px;
+    flex-shrink: 0;
+    box-shadow: 0 2px 10px rgba(124,156,255,.25);
+  }
+  .brand-text { font-size: 14px; font-weight: 600; letter-spacing: -.2px; flex: 1; min-width: 0; }
+  .brand-sub { display: block; font-size: 11px; font-weight: 400; color: var(--fg-3); margin-top: 1px; }
+
+  .side-actions { padding: 10px 12px 4px; display: flex; gap: 6px; }
+  .btn-primary {
+    flex: 1;
+    background: var(--accent); color: var(--accent-fg);
+    border: none; border-radius: var(--radius-sm);
+    padding: 8px 12px; font-size: 13px; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 8px; justify-content: center;
+    transition: filter .12s, transform .05s;
+  }
+  .btn-primary:hover { filter: brightness(1.1); }
+  .btn-primary:active { transform: translateY(1px); }
+  .btn-ghost {
+    background: var(--panel-2); color: var(--fg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px; font-size: 13px;
+    display: inline-flex; align-items: center; gap: 6px; justify-content: center;
+    transition: all .12s;
+    position: relative;
+  }
+  .btn-ghost:hover { color: var(--fg); background: var(--panel-hover); border-color: var(--border-hi); }
+  .btn-ghost .ind {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--fg-4); display: inline-block;
+  }
+  .btn-ghost.has-ctx .ind { background: var(--info); box-shadow: 0 0 0 3px var(--info-dim); }
+
+  .quick-row { padding: 4px 12px 8px; display: flex; gap: 6px; }
+  .quick-chip {
+    flex: 1;
+    background: transparent; color: var(--fg-3);
+    border: 1px dashed var(--border);
+    border-radius: 16px;
+    padding: 4px 10px; font-size: 11px;
+    display: inline-flex; align-items: center; gap: 5px; justify-content: center;
+    transition: all .12s;
+  }
+  .quick-chip:hover { color: var(--fg); border-color: var(--border-hi); }
+  .quick-chip .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+  .quick-chip.ctx  { color: var(--info); border-color: rgba(56,189,248,.3); background: var(--info-dim); }
+  .quick-chip.hist { color: var(--purple); border-color: rgba(192,132,252,.3); background: var(--purple-dim); }
+
+  .side-search { padding: 4px 12px 8px; }
+  .side-search input {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    padding: 6px 10px;
+    font-size: 12.5px;
+    border-radius: var(--radius-sm);
+    transition: border-color .12s, background .12s;
+  }
+  .side-search input::placeholder { color: var(--fg-3); }
+  .side-search input:focus { outline: none; border-color: var(--accent); background: var(--panel); }
+
+  .side-section {
+    padding: 10px 16px 6px;
+    font-size: 11px; color: var(--fg-3);
+    letter-spacing: .5px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .side-section .count { font-variant-numeric: tabular-nums; }
+  .side-section .count b { color: var(--fg-2); font-weight: 500; }
+  .side-section .count .run { color: var(--success); }
+
+  .task-list { flex: 1; overflow-y: auto; padding: 2px 8px 12px; }
+  .task-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    margin-bottom: 1px;
+    cursor: pointer;
+    transition: background .1s;
+    position: relative;
+  }
+  .task-item:hover { background: var(--panel-2); }
+  .task-item.active { background: var(--panel-hover); }
+  .task-item.active::before {
+    content: ''; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px;
+    background: var(--accent); border-radius: 2px;
+  }
+  .task-item .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--fg-4); flex-shrink: 0;
+    transition: background .2s, box-shadow .2s;
+  }
+  .task-item .dot.running {
+    background: var(--success);
+    box-shadow: 0 0 0 3px var(--success-dim);
+    animation: pulse 1.8s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 2px rgba(74, 222, 128, .15); }
+    50%      { box-shadow: 0 0 0 4px rgba(74, 222, 128, .05); }
+  }
+  .task-item .tname {
+    flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 13px; color: var(--fg-2);
+  }
+  .task-item.active .tname, .task-item:hover .tname { color: var(--fg); }
+  .task-item .tmeta {
+    font-size: 11px; color: var(--fg-3); flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .list-empty { padding: 24px 12px; font-size: 12px; color: var(--fg-3); text-align: center; line-height: 1.6; }
+
+  /* =============== MAIN =============== */
+  .main { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; overflow: hidden; }
+
+  .topbar {
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px;
+    min-height: 54px;
+    background: var(--bg);
+  }
+  .topbar .title {
+    font-size: 14px; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    min-width: 0; max-width: 280px;
+  }
+  .topbar .title-placeholder { font-size: 14px; color: var(--fg-3); font-weight: 400; }
+
+  .chip {
+    font-size: 11px; padding: 3px 9px;
+    border-radius: 20px;
+    letter-spacing: .3px;
+    display: inline-flex; align-items: center; gap: 6px;
+    font-weight: 500;
+    border: 1px solid var(--border);
+    color: var(--fg-2); background: var(--panel);
+    flex-shrink: 0;
+  }
+  .chip::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+  .chip.running { color: var(--success); border-color: rgba(74,222,128,.3); background: var(--success-dim); }
+  .chip.running::before { animation: pulse 1.8s ease-in-out infinite; box-shadow: 0 0 6px currentColor; }
+  .chip.warn    { color: var(--warn);    border-color: rgba(251,191,36,.3); background: var(--warn-dim); }
+  .chip.danger  { color: var(--danger);  border-color: rgba(248,113,113,.3); background: var(--danger-dim); }
+  .chip.info    { color: var(--info);    border-color: rgba(56,189,248,.3); background: var(--info-dim); }
+
+  .meta-inline {
+    display: flex; gap: 14px;
+    font-size: 12px; color: var(--fg-3);
+    font-variant-numeric: tabular-nums;
+    overflow: hidden; flex-wrap: nowrap;
+  }
+  .meta-inline span { white-space: nowrap; }
+  .meta-inline b { color: var(--fg-2); font-weight: 500; }
+
+  .topbar .spacer { flex: 1; }
+
+  .icon-btn {
+    background: transparent; color: var(--fg-2);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    padding: 5px 10px; font-size: 12.5px;
+    transition: all .12s;
+  }
+  .icon-btn:hover:not(:disabled) { background: var(--panel-2); color: var(--fg); border-color: var(--border); }
+  .icon-btn:disabled { opacity: .35; cursor: not-allowed; }
+  .icon-btn.danger:hover:not(:disabled) {
+    color: var(--danger); border-color: rgba(248,113,113,.35); background: var(--danger-dim);
+  }
+
+  .prompt-box {
+    padding: 10px 20px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: flex-start; gap: 10px;
+    flex-shrink: 0;
+  }
+  .prompt-box .label {
+    font-size: 10px; color: var(--fg-3); letter-spacing: .8px;
+    flex-shrink: 0; padding-top: 4px; width: 56px;
+    font-weight: 600;
+  }
+  .prompt-box .body {
+    flex: 1; min-width: 0;
+    font-size: 12.5px; color: var(--fg-2);
+    white-space: pre-wrap; line-height: 1.6;
+    max-height: 72px; overflow: hidden;
+    position: relative; word-break: break-word;
+  }
+  .prompt-box.expanded .body { max-height: 240px; overflow: auto; }
+  .prompt-box .body.clipped::after {
+    content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 28px;
+    background: linear-gradient(transparent, var(--panel));
+    pointer-events: none;
+  }
+  .prompt-box.expanded .body.clipped::after { display: none; }
+  .prompt-toggle {
+    background: transparent; border: none; color: var(--fg-3);
+    padding: 2px 8px; font-size: 11px;
+    border-radius: var(--radius-sm);
+    align-self: flex-start; flex-shrink: 0;
+  }
+  .prompt-toggle:hover { color: var(--fg); background: var(--panel-2); }
+
+  /* 彩色 tabs */
+  .tabs {
+    display: flex; gap: 2px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    overflow-x: auto; flex-shrink: 0;
+  }
+  .tab {
+    background: transparent; border: none; color: var(--fg-3);
+    padding: 10px 14px;
+    font-size: 12px; font-weight: 600;
+    letter-spacing: .4px;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    display: inline-flex; align-items: center; gap: 8px;
+    white-space: nowrap;
+    transition: color .12s;
+  }
+  .tab:hover { color: var(--fg-2); }
+  .tab.active { color: var(--fg); }
+  .tab.output.active    { border-bottom-color: var(--success); }
+  .tab.stdout.active    { border-bottom-color: var(--accent); }
+  .tab.stderr.active    { border-bottom-color: var(--danger); }
+  .tab.output1.active   { border-bottom-color: var(--info); }
+  .tab .badge {
+    font-size: 10px; padding: 1px 6px;
+    border-radius: 10px;
+    background: var(--panel-2); color: var(--fg-3);
+    font-variant-numeric: tabular-nums; font-weight: 500;
+  }
+  .tab.stderr.has-data .badge { background: var(--danger-dim); color: var(--danger); }
+  .tab.output.has-data .badge { background: var(--success-dim); color: var(--success); }
+
+  .log-area {
+    overflow: auto;
+    padding: 16px 20px 24px;
+    font-family: var(--font-mono);
+    font-size: 12.5px; line-height: 1.7;
+    color: var(--fg);
+    white-space: pre-wrap; word-break: break-word;
+    background: var(--bg);
+  }
+  .log-area.empty { color: var(--fg-3); font-style: italic; font-family: var(--font-sans); }
+  .log-area.stderr { color: #fca5a5; }
+
+  .empty-state {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 12px; color: var(--fg-3);
+    text-align: center;
+    padding: 40px 20px;
+    height: 100%;
+  }
+  .empty-state .ico {
+    width: 48px; height: 48px; border-radius: 14px;
+    background: linear-gradient(135deg, var(--accent-dim) 0%, var(--purple-dim) 100%);
+    display: grid; place-items: center;
+    color: var(--accent); font-size: 22px;
+    border: 1px solid var(--border);
+    margin-bottom: 4px;
+  }
+  .empty-state .hd { font-size: 15px; color: var(--fg-2); font-weight: 500; }
+  .empty-state .sd { font-size: 12px; color: var(--fg-3); max-width: 380px; line-height: 1.6; }
+  .kbd-inline {
+    font-family: var(--font-mono); font-size: 11px;
+    padding: 1px 6px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 3px; color: var(--fg-2);
+  }
+
+  /* =============== COMPOSER =============== */
+  .composer {
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+    padding: 12px 20px 16px;
+    position: relative;
+  }
+  .compose-mode {
+    font-size: 11px; color: var(--fg-3);
+    margin-bottom: 8px;
+    display: flex; align-items: center; gap: 10px;
+    letter-spacing: .3px;
+  }
+  .compose-mode .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 8px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    color: var(--fg-2); font-weight: 500;
+    max-width: 60%; overflow: hidden;
+  }
+  .compose-mode .pill .mdot {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--fg-2); flex-shrink: 0;
+  }
+  .compose-mode .pill.reply { color: var(--success); border-color: rgba(74,222,128,.3); background: var(--success-dim); }
+  .compose-mode .pill.reply .mdot { background: var(--success); }
+  .compose-mode .pill.stopped { color: var(--warn); border-color: rgba(251,191,36,.35); background: var(--warn-dim); }
+  .compose-mode .pill.stopped .mdot { background: var(--warn); }
+  .compose-mode .pill .mlabel {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+  }
+  .compose-mode .tname { color: var(--fg); font-weight: 500; }
+  .compose-mode .hint { margin-left: auto; color: var(--fg-4); font-size: 11px; }
+  .compose-mode kbd {
+    font-family: var(--font-mono); font-size: 10px;
+    padding: 1px 5px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 3px; color: var(--fg-2); margin: 0 1px;
+  }
+
+  .name-input-wrap { margin-bottom: 6px; }
+  .name-input-wrap input {
+    width: 100%;
+    background: transparent; color: var(--fg);
+    border: none;
+    border-bottom: 1px dashed var(--border);
+    padding: 4px 2px; font-size: 12.5px;
+    transition: border-color .12s;
+  }
+  .name-input-wrap input::placeholder { color: var(--fg-3); }
+  .name-input-wrap input:hover { border-bottom-color: var(--border-hi); }
+  .name-input-wrap input:focus { outline: none; border-bottom-color: var(--accent); border-bottom-style: solid; }
+
+  .textarea-wrap {
+    position: relative;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 12px 44px;
+    transition: border-color .12s, box-shadow .12s;
+  }
+  .textarea-wrap:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-dim);
+  }
+  .textarea-wrap textarea {
+    width: 100%;
+    background: transparent; color: var(--fg);
+    border: none; outline: none; resize: none;
+    font-size: 14px; line-height: 1.55;
+    min-height: 88px; max-height: 280px; overflow-y: auto;
+  }
+  .textarea-wrap textarea::placeholder { color: var(--fg-3); }
+
+  .composer-toolbar {
+    position: absolute; left: 10px; right: 10px; bottom: 8px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .tool-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--fg-3);
+    border-radius: var(--radius-sm);
+    padding: 4px 9px; font-size: 11.5px;
+    display: inline-flex; align-items: center; gap: 5px;
+    transition: all .12s;
+  }
+  .tool-btn:hover:not(:disabled) { color: var(--fg-2); background: var(--panel-2); border-color: var(--border); }
+  .tool-btn.active {
+    color: var(--warn);
+    background: var(--warn-dim);
+    border-color: rgba(251,191,36,.3);
+  }
+  .tool-btn.purple {
+    color: var(--purple);
+  }
+  .tool-btn.purple:hover { background: var(--purple-dim); border-color: rgba(192,132,252,.3); }
+  .tool-btn .check {
+    width: 10px; height: 10px; border-radius: 2px;
+    border: 1px solid currentColor;
+    display: inline-grid; place-items: center;
+    margin-right: 2px;
+  }
+  .tool-btn.active .check { background: var(--warn); border-color: var(--warn); color: var(--bg); }
+  .tool-btn.active .check::after { content: '✓'; font-size: 9px; line-height: 1; font-weight: 700; }
+
+  .send-btn {
+    margin-left: auto;
+    background: var(--accent); color: var(--accent-fg);
+    border: none;
+    border-radius: var(--radius-sm);
+    padding: 6px 16px;
+    font-size: 12.5px; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: filter .12s, transform .05s;
+    box-shadow: 0 1px 4px rgba(124,156,255,.3);
+  }
+  .send-btn:hover:not(:disabled) { filter: brightness(1.1); }
+  .send-btn:active:not(:disabled) { transform: translateY(1px); }
+  .send-btn:disabled { background: var(--panel-2); color: var(--fg-3); cursor: not-allowed; box-shadow: none; }
+
+  /* =============== POPOVER / HISTORY =============== */
+  .popover {
+    position: absolute;
+    bottom: calc(100% + 6px); left: 0;
+    width: 460px; max-width: calc(100vw - 40px);
+    max-height: 420px;
+    background: var(--panel-2);
+    border: 1px solid var(--border-hi);
+    border-radius: var(--radius);
+    box-shadow: 0 16px 48px rgba(0,0,0,.6);
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    z-index: 50;
+  }
+  .popover-head {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11.5px; color: var(--fg-3);
+    letter-spacing: .3px;
+  }
+  .popover-head b { color: var(--fg); font-weight: 600; }
+  .popover-head .hi-total {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 7px; border-radius: 10px;
+    background: var(--purple-dim); color: var(--purple);
+    font-weight: 600;
+  }
+  .popover-head .sep { flex: 1; }
+  .popover-head button {
+    background: transparent; border: 1px solid transparent;
+    color: var(--fg-3); font-size: 11px;
+    padding: 3px 8px; border-radius: 3px;
+    transition: all .12s;
+  }
+  .popover-head button:hover { color: var(--danger); background: var(--danger-dim); border-color: rgba(248,113,113,.3); }
+  .popover-list { overflow-y: auto; flex: 1; }
+  .popover-item {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    display: flex; gap: 10px; align-items: flex-start;
+    transition: background .1s;
+  }
+  .popover-item:last-child { border-bottom: none; }
+  .popover-item:hover { background: var(--panel-hover); }
+  .popover-item .k {
+    flex-shrink: 0;
+    font-size: 10px; padding: 2px 7px;
+    border-radius: 10px;
+    font-weight: 600;
+    letter-spacing: .4px;
+    line-height: 1.2;
+  }
+  .k-new   { background: var(--accent-dim);  color: var(--accent); }
+  .k-reply { background: var(--success-dim); color: var(--success); }
+  .k-fast  { background: var(--warn-dim);    color: var(--warn); }
+  .popover-item .text {
+    flex: 1; min-width: 0;
+    font-size: 12.5px; color: var(--fg);
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    word-break: break-word;
+    line-height: 1.5;
+  }
+  .popover-item .text .task-ref {
+    display: block;
+    font-size: 10.5px; color: var(--fg-3);
+    margin-top: 2px;
+  }
+  .popover-item .meta {
+    font-size: 10.5px; color: var(--fg-3); white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    padding-top: 2px;
+  }
+  .popover-item .rm {
+    background: transparent; border: none;
+    color: var(--fg-4); font-size: 14px; line-height: 1;
+    padding: 0 2px; opacity: 0;
+    transition: opacity .12s, color .12s;
+  }
+  .popover-item:hover .rm { opacity: 1; }
+  .popover-item .rm:hover { color: var(--danger); }
+  .popover-empty { padding: 32px 16px; text-align: center; color: var(--fg-3); font-size: 12px; }
+
+  /* =============== MODAL =============== */
+  .modal-bg {
+    display: none;
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(0, 0, 0, .65);
+    backdrop-filter: blur(2px);
+    align-items: center; justify-content: center;
+  }
+  .modal-bg.show { display: flex; }
+  .modal {
+    width: min(640px, 92vw);
+    max-height: 80vh;
+    background: var(--panel);
+    border: 1px solid var(--border-hi);
+    border-radius: var(--radius);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,.7);
+  }
+  .modal-head {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .modal-head .mt { font-size: 13px; font-weight: 600; }
+  .modal-head .ms { font-size: 11px; color: var(--fg-3); }
+  .modal-head .sp { flex: 1; }
+  .modal-hint {
+    padding: 10px 18px 0;
+    font-size: 11.5px; color: var(--fg-3); line-height: 1.6;
+  }
+  .modal-body { padding: 12px 18px; flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+  .modal-body textarea {
+    flex: 1; min-height: 280px;
+    background: var(--bg); color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    font-family: var(--font-mono); font-size: 12.5px; line-height: 1.6;
+    resize: vertical; outline: none;
+    transition: border-color .12s, box-shadow .12s;
+  }
+  .modal-body textarea:focus { border-color: var(--info); box-shadow: 0 0 0 3px var(--info-dim); }
+  .modal-foot {
+    padding: 12px 18px;
+    border-top: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .modal-foot .st { font-size: 11px; color: var(--fg-3); flex: 1; }
+
+  .fade-in { animation: fade .18s ease both; }
+  @keyframes fade { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+
+  /* =============== TOAST =============== */
+  #toast-host {
+    position: fixed; right: 20px; bottom: 20px;
+    display: flex; flex-direction: column; gap: 8px;
+    z-index: 200; pointer-events: none;
+  }
+  .toast {
+    padding: 9px 14px;
+    border-radius: var(--radius-sm);
+    font-size: 12.5px;
+    background: var(--panel);
+    border: 1px solid var(--border-hi);
+    color: var(--fg);
+    box-shadow: 0 8px 24px rgba(0,0,0,.5);
+    animation: slide-in .2s ease both;
+    max-width: 360px;
+    pointer-events: auto;
+  }
+  .toast.ok   { border-color: rgba(74,222,128,.4); background: linear-gradient(180deg, var(--panel), var(--success-dim)); }
+  .toast.warn { border-color: rgba(251,191,36,.4); background: linear-gradient(180deg, var(--panel), var(--warn-dim)); }
+  .toast.err  { border-color: rgba(248,113,113,.4); background: linear-gradient(180deg, var(--panel), var(--danger-dim)); }
+  .toast.out  { animation: slide-out .4s ease both; }
+  @keyframes slide-in  { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: none; } }
+  @keyframes slide-out { to   { opacity: 0; transform: translateX(20px); } }
+
+  @media (max-width: 720px) {
+    .app { grid-template-columns: 1fr; }
+    .sidebar { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="side-head">
+      <div class="logo">GA</div>
+      <div class="brand-text">
+        GA 控制台
+        <span class="brand-sub">agent tasks</span>
+      </div>
+    </div>
+    <div class="side-actions">
+      <button class="btn-primary" id="btn-new-task" title="切换到新建模式">
+        <span>+</span>新建任务
+      </button>
+    </div>
+    <div class="quick-row">
+      <button class="quick-chip ctx" id="btn-ctx" title="项目常驻上下文"><span class="dot"></span><span id="ctx-label">上下文</span></button>
+      <button class="quick-chip hist" id="btn-history-open" title="历史提问"><span class="dot"></span><span id="hist-count-label">历史 0</span></button>
+    </div>
+    <div class="side-search">
+      <input id="search-input" placeholder="搜索任务…" spellcheck="false" autocomplete="off" />
+    </div>
+    <div class="side-section">
+      <span>任务</span>
+      <span class="count"><b id="c-running" class="run">0</b> 运行 · <b id="c-total">0</b> 总计</span>
+    </div>
+    <div class="task-list" id="task-list"></div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar" id="topbar">
+      <div class="title-placeholder">未选择任务 · 从下方输入开启一个新任务</div>
+    </div>
+
+    <div id="middle" style="display:flex; flex-direction:column; min-height:0; overflow:hidden;">
+      <div class="empty-state" id="empty-state">
+        <div class="ico">⌁</div>
+        <div class="hd">开始一个新任务</div>
+        <div class="sd">在下方输入任务描述，按 <span class="kbd-inline">Ctrl</span>+<span class="kbd-inline">Enter</span> 执行。所有提问会自动保存，点左上角"历史"随时回看。</div>
+      </div>
+
+      <div id="detail" style="display:none; flex-direction:column; min-height:0; overflow:hidden; flex:1;">
+        <div class="prompt-box" id="prompt-box">
+          <div class="label">PROMPT</div>
+          <div class="body" id="prompt-body"></div>
+          <button class="prompt-toggle" id="prompt-toggle" style="display:none;">展开</button>
+        </div>
+        <div class="tabs" id="tabs">
+          <button class="tab output active" data-field="output">OUTPUT <span class="badge">—</span></button>
+          <button class="tab stdout" data-field="stdout">STDOUT <span class="badge">—</span></button>
+          <button class="tab stderr" data-field="stderr">STDERR <span class="badge">—</span></button>
+          <button class="tab output1" data-field="output1">OUTPUT1 <span class="badge">—</span></button>
+        </div>
+        <div class="log-area empty" id="log-area">(空)</div>
+      </div>
+    </div>
+
+    <div class="composer">
+      <div class="compose-mode">
+        <span class="pill" id="mode-pill"><span class="mdot"></span><span class="mlabel" id="mode-label">新建任务</span></span>
+        <span class="hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> 发送</span>
+      </div>
+      <div class="name-input-wrap" id="name-wrap">
+        <input id="task-name" placeholder="任务名（可选，留空自动生成）" spellcheck="false" autocomplete="off" />
+      </div>
+      <div class="textarea-wrap">
+        <textarea id="prompt-input" placeholder="告诉 GA 要做什么…" spellcheck="false" rows="1"></textarea>
+        <div class="composer-toolbar">
+          <button class="tool-btn purple" id="btn-history" type="button" title="历史提问">
+            <span>↑</span> 历史 <span id="history-count" style="color:var(--fg-4);">0</span>
+          </button>
+          <button class="tool-btn" id="btn-fast" type="button" title='快速模式：prompt 前加"禁止规划"前缀'>
+            <span class="check"></span>快速模式
+          </button>
+          <button class="send-btn" id="btn-send"><span id="send-label">运行</span></button>
+        </div>
+        <div class="popover fade-in" id="history-popover" style="display:none;">
+          <div class="popover-head">
+            <span>历史提问</span>
+            <span class="hi-total"><b id="popover-count">0</b></span>
+            <span class="sep"></span>
+            <button id="btn-history-clear">清空全部</button>
+          </div>
+          <div class="popover-list" id="popover-list"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ==================== 项目上下文模态框 ==================== -->
+<div class="modal-bg" id="ctx-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="mt">项目常驻上下文</div>
+      <div class="ms">会自动前置到每个新任务</div>
+      <div class="sp"></div>
+      <button class="icon-btn" id="ctx-close" type="button">关闭</button>
+    </div>
+    <div class="modal-hint">
+      写项目路径、端口、常用 skill 目录、约定等 agent 每次都需要的背景。留空 = 不注入。
+    </div>
+    <div class="modal-body">
+      <textarea id="ctx-textarea" spellcheck="false" placeholder="例：&#10;项目根：D:/.../GenericAgent&#10;浏览器桥接端口：18765&#10;常用 skill 在 temp/xxx_skill/&#10;..."></textarea>
+    </div>
+    <div class="modal-foot">
+      <span class="st" id="ctx-status"></span>
+      <button class="icon-btn" id="ctx-clear" type="button">清空</button>
+      <button class="send-btn" id="ctx-save" type="button" style="padding:6px 16px;">保存</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-host"></div>
+
+<script>
+// ================================================================
+//                         State & helpers
+// ================================================================
+const POLL_LIST_MS = 3000;
+const POLL_DETAIL_MS = 1500;
+
+const state = {
+  currentTask: null,
+  tasks: [],
+  activeTab: 'output',
+  fastMode: false,
+  search: '',
+  lastDetail: null,
+  detailToken: 0,
+  promptExpanded: false,
+  history: [],
+};
+try { state.fastMode = localStorage.getItem('ga_fast_mode') === '1'; } catch {}
+
+function fmtTime(ts) {
+  if (!ts) return '—';
+  const diff = Date.now() / 1000 - ts;
+  if (diff < 60)    return Math.floor(diff) + 's';
+  if (diff < 3600)  return Math.floor(diff / 60) + 'm';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h';
+  return Math.floor(diff / 86400) + 'd';
+}
+function fmtBytes(s) {
+  if (!s) return '0 b';
+  const n = s.length;
+  if (n < 1024) return n + ' b';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' kb';
+  return (n / 1024 / 1024).toFixed(1) + ' mb';
+}
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) {
+    const msg = await r.text().catch(() => r.statusText);
+    const err = new Error(msg || r.statusText);
+    err.status = r.status;
+    throw err;
+  }
+  const ct = r.headers.get('content-type') || '';
+  return ct.includes('json') ? r.json() : r.text();
+}
+
+// 右下角轻提示
+function toast(msg, kind = 'ok') {
+  const host = document.getElementById('toast-host');
+  if (!host) return;
+  const div = document.createElement('div');
+  div.className = 'toast ' + kind;
+  div.textContent = msg;
+  host.appendChild(div);
+  setTimeout(() => { div.classList.add('out'); }, 2600);
+  setTimeout(() => { div.remove(); }, 3100);
+}
+
+// ================================================================
+//                        History (后端存储)
+// ================================================================
+async function reloadHistory() {
+  try {
+    const d = await api('/api/history');
+    state.history = Array.isArray(d.items) ? d.items : [];
+  } catch {
+    state.history = [];
+  }
+  renderHistoryCount();
+}
+function renderHistoryCount() {
+  const n = state.history.length;
+  const el = document.getElementById('history-count');
+  if (el) el.textContent = n;
+  const labelEl = document.getElementById('hist-count-label');
+  if (labelEl) labelEl.textContent = `历史 ${n}`;
+}
+async function deleteHistoryItem(item) {
+  try {
+    await api('/api/history/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ts: item.ts, text: item.text }),
+    });
+    await reloadHistory();
+    renderHistory();
+  } catch (e) { alert('删除失败: ' + e.message); }
+}
+async function clearAllHistory() {
+  if (!confirm('清空所有历史提问？不可恢复。')) return;
+  try {
+    await api('/api/history', { method: 'DELETE' });
+    await reloadHistory();
+    renderHistory();
+  } catch (e) { alert('清空失败: ' + e.message); }
+}
+function renderHistory() {
+  document.getElementById('popover-count').textContent = state.history.length;
+  const host = document.getElementById('popover-list');
+  host.innerHTML = '';
+  if (state.history.length === 0) {
+    host.innerHTML = '<div class="popover-empty">还没有历史提问</div>';
+    return;
+  }
+  state.history.forEach(item => {
+    const row = document.createElement('div');
+    row.className = 'popover-item';
+
+    const kind = document.createElement('div');
+    kind.className = 'k ' + (item.fast ? 'k-fast' : item.kind === 'reply' ? 'k-reply' : 'k-new');
+    kind.textContent = item.fast ? 'FAST' : item.kind === 'reply' ? 'REPLY' : 'NEW';
+
+    const text = document.createElement('div');
+    text.className = 'text';
+    const main = document.createElement('div');
+    main.textContent = item.text;
+    text.appendChild(main);
+    if (item.task) {
+      const ref = document.createElement('span');
+      ref.className = 'task-ref';
+      ref.textContent = '→ ' + item.task;
+      text.appendChild(ref);
+    }
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = fmtTime(item.ts);
+
+    const rm = document.createElement('button');
+    rm.className = 'rm';
+    rm.title = '删除这条';
+    rm.textContent = '×';
+    rm.onclick = e => { e.stopPropagation(); deleteHistoryItem(item); };
+
+    row.append(kind, text, meta, rm);
+    row.onclick = () => {
+      const input = document.getElementById('prompt-input');
+      input.value = item.text;
+      autogrow();
+      input.focus();
+      closePopover();
+    };
+    host.appendChild(row);
+  });
+}
+
+// ================================================================
+//                         Sidebar / tasks
+// ================================================================
+function matchesSearch(t, q) {
+  if (!q) return true;
+  return t.name.toLowerCase().includes(q.toLowerCase());
+}
+function renderTaskList() {
+  const list = document.getElementById('task-list');
+  const tasks = state.tasks.filter(t => matchesSearch(t, state.search));
+  const running = state.tasks.filter(t => t.running).length;
+  document.getElementById('c-running').textContent = running;
+  document.getElementById('c-total').textContent = state.tasks.length;
+  list.innerHTML = '';
+  if (tasks.length === 0) {
+    list.innerHTML = '<div class="list-empty">' +
+      (state.search ? '没有匹配项' : '暂无任务') + '</div>';
+    return;
+  }
+  tasks.forEach(t => {
+    const div = document.createElement('div');
+    div.className = 'task-item' + (t.name === state.currentTask ? ' active' : '');
+    div.dataset.name = t.name;
+    const dot = document.createElement('span');
+    dot.className = 'dot' + (t.running ? ' running' : '');
+    const name = document.createElement('span');
+    name.className = 'tname';
+    name.textContent = t.name;
+    const meta = document.createElement('span');
+    meta.className = 'tmeta';
+    meta.textContent = fmtTime(t.updated_at);
+    div.append(dot, name, meta);
+    div.onclick = () => selectTask(t.name);
+    list.appendChild(div);
+  });
+}
+async function loadTasks() {
+  try {
+    const tasks = await api('/api/tasks');
+    state.tasks = Array.isArray(tasks) ? tasks : [];
+    renderTaskList();
+  } catch { /* silent */ }
+}
+
+// ================================================================
+//                         Detail
+// ================================================================
+function selectTask(name) {
+  if (state.currentTask === name) return;
+  state.currentTask = name;
+  state.lastDetail = null;
+  state.promptExpanded = false;
+  state.detailToken++;
+  renderTaskList();
+  renderMode();
+  showDetailScaffold();
+  loadDetail();
+}
+function deselectTask() {
+  state.currentTask = null;
+  state.lastDetail = null;
+  state.detailToken++;
+  renderTaskList();
+  renderMode();
+  showEmpty();
+}
+function showEmpty() {
+  document.getElementById('empty-state').style.display = '';
+  document.getElementById('detail').style.display = 'none';
+  const tb = document.getElementById('topbar');
+  tb.innerHTML = '<div class="title-placeholder">未选择任务 · 从下方输入开启一个新任务</div>';
+}
+function showDetailScaffold() {
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('detail').style.display = 'flex';
+  renderTopbar(null);
+  document.getElementById('prompt-body').textContent = '加载中…';
+  document.getElementById('prompt-toggle').style.display = 'none';
+  document.querySelectorAll('.tab').forEach(t => {
+    t.querySelector('.badge').textContent = '—';
+    t.classList.remove('has-data');
+  });
+  const la = document.getElementById('log-area');
+  la.textContent = '加载中…';
+  la.classList.add('empty');
+  la.classList.remove('stderr');
+  la.dataset.field = '';
+}
+function renderTopbar(data) {
+  const tb = document.getElementById('topbar');
+  tb.innerHTML = '';
+  if (!data) {
+    const t = document.createElement('div');
+    t.className = 'title';
+    t.textContent = state.currentTask || '';
+    tb.appendChild(t);
+    return;
+  }
+  const title = document.createElement('div');
+  title.className = 'title';
+  title.title = data.name;
+  title.textContent = data.name;
+
+  const chip = document.createElement('span');
+  chip.className = 'chip' + (data.running ? ' running' : '');
+  chip.textContent = data.running ? '运行中' : '空闲';
+
+  const meta = document.createElement('div');
+  meta.className = 'meta-inline';
+  if (data.pid) {
+    const s = document.createElement('span');
+    s.innerHTML = `PID <b>${data.pid}</b>`;
+    meta.appendChild(s);
+  }
+  const upd = document.createElement('span');
+  upd.innerHTML = `更新 <b>${fmtTime(data.updated_at)}</b>`;
+  meta.appendChild(upd);
+
+  const spacer = document.createElement('div');
+  spacer.className = 'spacer';
+
+  const extras = [];
+  if (data.reply_exists) {
+    const r = document.createElement('span');
+    r.className = 'chip warn';
+    r.textContent = 'REPLY 待处理';
+    extras.push(r);
+  }
+  if ((data.stderr || '').length > 0) {
+    const r = document.createElement('span');
+    r.className = 'chip danger';
+    r.textContent = 'STDERR';
+    extras.push(r);
+  }
+
+  const kill = document.createElement('button');
+  kill.className = 'icon-btn danger';
+  kill.textContent = '停止';
+  kill.disabled = !data.running;
+  kill.onclick = async () => {
+    if (!confirm(`停止任务 ${data.name} ?`)) return;
+    try { await api(`/api/tasks/${encodeURIComponent(data.name)}/kill`, { method: 'POST' }); }
+    catch (e) { alert(e.message); }
+    loadDetail();
+  };
+
+  const del = document.createElement('button');
+  del.className = 'icon-btn';
+  del.textContent = '删除';
+  del.disabled = data.running;
+  del.title = data.running ? '先停止再删除' : '';
+  del.onclick = async () => {
+    if (!confirm(`删除任务 ${data.name} 及所有文件？`)) return;
+    try {
+      await api(`/api/tasks/${encodeURIComponent(data.name)}`, { method: 'DELETE' });
+      deselectTask();
+      loadTasks();
+    } catch (e) { alert(e.message); }
+  };
+
+  tb.append(title, chip, meta, spacer, ...extras, kill, del);
+}
+
+function setActiveTab(field) {
+  state.activeTab = field;
+  document.querySelectorAll('.tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.field === field);
+  });
+  const la = document.getElementById('log-area');
+  la.dataset.field = '';
+  renderLogBody();
+}
+
+function renderLogBody() {
+  const la = document.getElementById('log-area');
+  la.classList.toggle('stderr', state.activeTab === 'stderr');
+  const d = state.lastDetail;
+  if (!d) return;
+  const text = d[state.activeTab] || '';
+  const display = text || '(空)';
+  if (la.dataset.field !== state.activeTab) {
+    la.dataset.field = state.activeTab;
+    la.textContent = display;
+    la.classList.toggle('empty', !text);
+    la.scrollTop = la.scrollHeight;
+    return;
+  }
+  if (la.textContent === display) return;
+  const atBottom = la.scrollHeight - la.scrollTop - la.clientHeight < 40;
+  la.textContent = display;
+  la.classList.toggle('empty', !text);
+  if (atBottom) la.scrollTop = la.scrollHeight;
+}
+
+async function loadDetail() {
+  if (!state.currentTask) return;
+  const myToken = ++state.detailToken;
+  const name = state.currentTask;
+  let data;
+  try {
+    data = await api(`/api/tasks/${encodeURIComponent(name)}`);
+  } catch (e) {
+    if (e && e.status === 404 && myToken === state.detailToken && state.currentTask === name) {
+      deselectTask();
+      loadTasks();
+    }
+    return;
+  }
+  if (myToken !== state.detailToken || state.currentTask !== name) return;
+
+  state.lastDetail = data;
+  renderTopbar(data);
+  renderMode();  // running 状态变了 → 按钮跟着切换
+
+  const body = document.getElementById('prompt-body');
+  const toggle = document.getElementById('prompt-toggle');
+  body.textContent = data.prompt || '(无 prompt)';
+  requestAnimationFrame(() => {
+    const clipped = body.scrollHeight > body.clientHeight + 2;
+    body.classList.toggle('clipped', clipped && !state.promptExpanded);
+    toggle.style.display = clipped ? '' : 'none';
+    toggle.textContent = state.promptExpanded ? '收起' : '展开';
+  });
+
+  ['output','stdout','stderr','output1'].forEach(f => {
+    const tab = document.querySelector(`.tab[data-field="${f}"]`);
+    const txt = data[f] || '';
+    tab.querySelector('.badge').textContent = fmtBytes(txt);
+    if (f === 'stderr' || f === 'output') tab.classList.toggle('has-data', !!txt);
+  });
+  renderLogBody();
+}
+
+// ================================================================
+//                       Composer
+// ================================================================
+function renderMode() {
+  const pill = document.getElementById('mode-pill');
+  const label = document.getElementById('mode-label');
+  const nameWrap = document.getElementById('name-wrap');
+  const input = document.getElementById('prompt-input');
+  const sendLabel = document.getElementById('send-label');
+  const fastBtn = document.getElementById('btn-fast');
+
+  if (state.currentTask) {
+    const running = !!(state.lastDetail && state.lastDetail.running);
+    pill.classList.add('reply');
+    pill.classList.toggle('stopped', !running);
+    if (running) {
+      label.innerHTML = `回复 <span class="tname">${escapeHtml(state.currentTask)}</span>`;
+      input.placeholder = '追加指令 / 回复运行中的任务…';
+      sendLabel.textContent = '发送';
+    } else {
+      label.innerHTML = `续写 <span class="tname">${escapeHtml(state.currentTask)}</span>`;
+      input.placeholder = '任务已结束 · 输入内容会重启 agent 续写下一轮…';
+      sendLabel.textContent = '续写';
+    }
+    nameWrap.style.display = 'none';
+    fastBtn.style.display = 'none';
+  } else {
+    pill.classList.remove('reply', 'stopped');
+    label.textContent = '新建任务';
+    nameWrap.style.display = '';
+    input.placeholder = '告诉 GA 要做什么…';
+    sendLabel.textContent = '运行';
+    fastBtn.style.display = '';
+  }
+  fastBtn.classList.toggle('active', state.fastMode);
+}
+
+function autogrow() {
+  const ta = document.getElementById('prompt-input');
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(ta.scrollHeight, 280) + 'px';
+}
+
+async function submitCompose() {
+  const input = document.getElementById('prompt-input');
+  const text = input.value.trim();
+  if (!text) { input.focus(); return; }
+  const btn = document.getElementById('btn-send');
+  btn.disabled = true;
+  try {
+    if (state.currentTask) {
+      const res = await api(`/api/tasks/${encodeURIComponent(state.currentTask)}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reply: text }),
+      });
+      if (res && res.mode === 'resume') {
+        toast('任务已结束 · 已重启 agent 续写新一轮', 'warn');
+      } else if (res && res.mode === 'reply') {
+        toast('已发送到运行中的 agent', 'ok');
+      }
+      input.value = '';
+      autogrow();
+      await reloadHistory();
+      loadDetail();
+    } else {
+      const name = document.getElementById('task-name').value.trim();
+      const data = await api('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name || null,
+          prompt: text,
+          fast: state.fastMode,
+        }),
+      });
+      input.value = '';
+      document.getElementById('task-name').value = '';
+      autogrow();
+      state.currentTask = data.task;
+      renderMode();
+      showDetailScaffold();
+      await reloadHistory();
+      await loadTasks();
+      await loadDetail();
+    }
+  } catch (e) {
+    alert('错误: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ================================================================
+//                    History popover
+// ================================================================
+async function togglePopover() {
+  const pop = document.getElementById('history-popover');
+  if (pop.style.display === 'none') {
+    await reloadHistory();
+    renderHistory();
+    pop.style.display = '';
+  } else {
+    pop.style.display = 'none';
+  }
+}
+function closePopover() {
+  document.getElementById('history-popover').style.display = 'none';
+}
+
+// ================================================================
+//                    Project context modal
+// ================================================================
+async function loadContextIndicator() {
+  try {
+    const d = await api('/api/context');
+    const btn = document.getElementById('btn-ctx');
+    const has = !!(d.content && d.content.trim());
+    btn.classList.toggle('has-ctx', has);
+    document.getElementById('ctx-label').textContent = has ? '上下文 ✓' : '上下文';
+    btn.title = has ? '项目常驻上下文（已启用）' : '项目常驻上下文（未设置）';
+  } catch { /* silent */ }
+}
+async function openContextModal() {
+  const modal = document.getElementById('ctx-modal');
+  const ta = document.getElementById('ctx-textarea');
+  const status = document.getElementById('ctx-status');
+  status.textContent = '加载中…';
+  try {
+    const d = await api('/api/context');
+    ta.value = d.content || '';
+    const bytes = new Blob([ta.value]).size;
+    status.textContent = bytes ? `当前 ${bytes} 字节` : '(未设置)';
+  } catch (e) {
+    status.textContent = '加载失败: ' + e.message;
+  }
+  modal.classList.add('show');
+  setTimeout(() => ta.focus(), 50);
+}
+function closeContextModal() {
+  document.getElementById('ctx-modal').classList.remove('show');
+}
+async function saveContext() {
+  const ta = document.getElementById('ctx-textarea');
+  const status = document.getElementById('ctx-status');
+  const btn = document.getElementById('ctx-save');
+  btn.disabled = true;
+  status.textContent = '保存中…';
+  try {
+    await api('/api/context', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: ta.value }),
+    });
+    status.textContent = '已保存 ✓';
+    await loadContextIndicator();
+    setTimeout(closeContextModal, 400);
+  } catch (e) {
+    status.textContent = '保存失败: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ================================================================
+//                    Event wiring
+// ================================================================
+document.getElementById('btn-new-task').onclick = () => {
+  deselectTask();
+  document.getElementById('prompt-input').focus();
+};
+document.getElementById('search-input').addEventListener('input', e => {
+  state.search = e.target.value;
+  renderTaskList();
+});
+document.getElementById('btn-fast').onclick = () => {
+  state.fastMode = !state.fastMode;
+  try { localStorage.setItem('ga_fast_mode', state.fastMode ? '1' : '0'); } catch {}
+  renderMode();
+};
+document.getElementById('btn-send').onclick = submitCompose;
+document.getElementById('btn-history').onclick = e => { e.stopPropagation(); togglePopover(); };
+document.getElementById('btn-history-open').onclick = e => { e.stopPropagation(); togglePopover(); };
+document.getElementById('btn-history-clear').onclick = clearAllHistory;
+document.addEventListener('click', e => {
+  const pop = document.getElementById('history-popover');
+  if (pop.style.display === 'none') return;
+  if (pop.contains(e.target)) return;
+  if (e.target.closest('#btn-history')) return;
+  if (e.target.closest('#btn-history-open')) return;
+  closePopover();
+});
+document.getElementById('prompt-toggle').onclick = () => {
+  state.promptExpanded = !state.promptExpanded;
+  const body = document.getElementById('prompt-body');
+  const pb = document.getElementById('prompt-box');
+  pb.classList.toggle('expanded', state.promptExpanded);
+  body.classList.toggle('clipped', !state.promptExpanded &&
+    body.scrollHeight > body.clientHeight + 2);
+  document.getElementById('prompt-toggle').textContent = state.promptExpanded ? '收起' : '展开';
+};
+document.querySelectorAll('.tab').forEach(t => {
+  t.onclick = () => setActiveTab(t.dataset.field);
+});
+
+// Context modal wiring
+document.getElementById('btn-ctx').onclick = openContextModal;
+document.getElementById('ctx-close').onclick = closeContextModal;
+document.getElementById('ctx-save').onclick = saveContext;
+document.getElementById('ctx-clear').onclick = () => {
+  if (confirm('清空项目常驻上下文？')) {
+    document.getElementById('ctx-textarea').value = '';
+    saveContext();
+  }
+};
+document.getElementById('ctx-modal').addEventListener('click', e => {
+  if (e.target.id === 'ctx-modal') closeContextModal();
+});
+
+// IME-safe keyboard
+const promptInput = document.getElementById('prompt-input');
+let composing = false;
+promptInput.addEventListener('compositionstart', () => { composing = true; });
+promptInput.addEventListener('compositionend',   () => { composing = false; });
+promptInput.addEventListener('input', autogrow);
+promptInput.addEventListener('keydown', e => {
+  if (composing) return;
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    submitCompose();
+  }
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    const modal = document.getElementById('ctx-modal');
+    if (modal.classList.contains('show')) { closeContextModal(); return; }
+    const pop = document.getElementById('history-popover');
+    if (pop.style.display !== 'none') { closePopover(); return; }
+  }
+});
+
+// ================================================================
+//                    Polling (visibility-aware)
+// ================================================================
+let pollListHandle = null;
+let pollDetailHandle = null;
+function startPolling() {
+  stopPolling();
+  pollListHandle   = setInterval(loadTasks,  POLL_LIST_MS);
+  pollDetailHandle = setInterval(loadDetail, POLL_DETAIL_MS);
+}
+function stopPolling() {
+  if (pollListHandle)   clearInterval(pollListHandle);
+  if (pollDetailHandle) clearInterval(pollDetailHandle);
+  pollListHandle = pollDetailHandle = null;
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) stopPolling();
+  else {
+    loadTasks();
+    if (state.currentTask) loadDetail();
+    startPolling();
+  }
+});
+
+// ================================================================
+//                         Init
+// ================================================================
+(async function init() {
+  renderMode();
+  showEmpty();
+  await Promise.all([loadContextIndicator(), reloadHistory(), loadTasks()]);
+  startPolling();
+})();
+</script>
+</body>
+</html>
