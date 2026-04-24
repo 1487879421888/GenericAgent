@@ -103,3 +103,5 @@ reflect/*
 # Universal: never track __pycache__ anywhere
 **/__pycache__/
 prompt_history.json
+prompt_history.json
+mykey.py
