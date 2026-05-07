@@ -6,7 +6,7 @@ if sys.stderr is None: sys.stderr = open(os.devnull, "w")
 elif hasattr(sys.stderr, 'reconfigure'): sys.stderr.reconfigure(errors='replace')
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from llmcore import LLMSession, ToolClient, ClaudeSession, MixinSession, NativeToolClient, NativeClaudeSession, NativeOAISession
+from llmcore import reload_mykeys, LLMSession, ToolClient, ClaudeSession, MixinSession, NativeToolClient, NativeClaudeSession, NativeOAISession
 from agent_loop import agent_runner_loop
 from ga import GenericAgentHandler, smart_format, get_global_memory, format_error, consume_file
 
@@ -43,7 +43,20 @@ class GeneraticAgent:
     def __init__(self):
         script_dir = os.path.dirname(os.path.abspath(__file__))
         os.makedirs(os.path.join(script_dir, 'temp'), exist_ok=True)
-        from llmcore import mykeys
+        self.lock = threading.Lock()
+        self.task_dir = None
+        self.history = []
+        self.task_queue = queue.Queue() 
+        self.is_running = False; self.stop_sig = False
+        self.llm_no = 0;  self.inc_out = False
+        self.handler = None; self.verbose = True
+        self.load_llm_sessions()
+
+    def load_llm_sessions(self):
+        mykeys, changed = reload_mykeys()
+        if not changed and hasattr(self, 'llmclients'): return
+        try: oldhistory = self.llmclient.backend.history
+        except: oldhistory = None
         llm_sessions = []
         for k, cfg in mykeys.items():
             if not any(x in k for x in ['api', 'config', 'cookie']): continue
@@ -62,16 +75,11 @@ class GeneraticAgent:
                     else: llm_sessions[i] = ToolClient(mixin)
                 except Exception as e: print(f'[WARN] Failed to init MixinSession with cfg {s["mixin_cfg"]}: {e}')
         self.llmclients = llm_sessions
-        self.lock = threading.Lock()
-        self.task_dir = None
-        self.history = []
-        self.task_queue = queue.Queue() 
-        self.is_running = False; self.stop_sig = False
-        self.llm_no = 0;  self.inc_out = False
-        self.handler = None; self.verbose = True
-        self.llmclient = self.llmclients[self.llm_no]
-
+        self.llmclient = self.llmclients[self.llm_no%len(self.llmclients)]
+        if oldhistory: self.llmclient.backend.history = oldhistory
+    
     def next_llm(self, n=-1):
+        self.load_llm_sessions()
         self.llm_no = ((self.llm_no + 1) if n < 0 else n) % len(self.llmclients)
         lastc = self.llmclient
         self.llmclient = self.llmclients[self.llm_no]
@@ -81,7 +89,9 @@ class GeneraticAgent:
         name = self.get_llm_name(model=True)
         if 'glm' in name or 'minimax' in name or 'kimi' in name: load_tool_schema('_cn')
         else: load_tool_schema()
-    def list_llms(self): return [(i, self.get_llm_name(b), i == self.llm_no) for i, b in enumerate(self.llmclients)]
+    def list_llms(self): 
+        self.load_llm_sessions()
+        return [(i, self.get_llm_name(b), i == self.llm_no) for i, b in enumerate(self.llmclients)]
     def get_llm_name(self, b=None, model=False):
         b = self.llmclient if b is None else b
         if isinstance(b, dict): return 'BADCONFIG_MIXIN'
@@ -135,12 +145,8 @@ class GeneraticAgent:
                 handler.working['passed_sessions'] = ps = self.handler.working.get('passed_sessions', 0) + 1
                 if ps > 0: handler.working['key_info'] += f'\n[SYSTEM] 此为 {ps} 个对话前设置的key_info，若已在新任务，先更新或清除工作记忆。\n'
             self.handler = handler
-            user_input = raw_query
-            if source == 'feishu' and len(self.history) > 1:   # 如果有历史记录且来自飞书，注入到首轮 user_input 中（支持/restore恢复上下文）
-                user_input = handler._get_anchor_prompt() + f"\n\n### 用户当前消息\n{raw_query}"
-            #if 'gpt' in self.get_llm_name(model=True): handler._done_hooks.append('请确定任务是否完成，如果完成请给出信息完整的简报回答，如未完成需要继续工具调用直到完成任务，确实需要问用户应使用ask_user工具')
             # although new handler, the **full** history is in llmclient, so it is full history!
-            gen = agent_runner_loop(self.llmclient, sys_prompt, user_input, 
+            gen = agent_runner_loop(self.llmclient, sys_prompt, raw_query, 
                                 handler, TOOLS_SCHEMA, max_turns=70, verbose=self.verbose)
             try:
                 full_resp = ""; last_pos = 0
@@ -247,6 +253,8 @@ if __name__ == '__main__':
                 except Exception as e: print(f'[Reflect] on_done error: {e}')
             if getattr(mod, 'ONCE', False): print('[Reflect] ONCE=True, exiting.'); break
     else:
+        try: import readline
+        except Exception: pass
         agent.inc_out = True
         while True:
             q = input('> ').strip()
